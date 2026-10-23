@@ -1,0 +1,1981 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Lineage Viewer</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+/* ── Base ──────────────────────────────────────────────────────── */
+:root {
+  --bg:      #0d1117;
+  --bg2:     #161b22;
+  --bg3:     #21262d;
+  --border:  #30363d;
+  --text:    #e6edf3;
+  --text2:   #8b949e;
+  --accent:  #58a6ff;
+  --gold:    #f0c040;
+  --up-glow: #58a6ff44;
+  --dn-glow: #f0883e44;
+
+  /* Platform palette */
+  --p-salesforce: #00a1e0;
+  --p-s3:         #ff9900;
+  --p-file:       #8ea3b4;
+  --p-talend:     #00c8e0;
+  --p-python:     #3776ab;
+  --p-redshift:   #e74c3c;
+  --p-tableau:    #e97627;
+  --p-powerbi:    #d4a800;
+  --p-powerbi-model:  #0099bc;
+  --p-powerbi-report: #f2c811;
+  --p-powerbi-table:  #a855f7;
+  --p-azure:      #0078d4;
+  --p-sap:        #0070f2;
+  --p-google-analytics: #f9ab00;
+  --p-gainsight:  #f57c00;
+  --p-api:        #e91e63;
+  --p-oracle:     #c74634;
+  --p-ftp:        #6d4c41;
+  --p-mysql:      #00758f;
+  --p-ec2:        #ff6b35;
+  --p-outreach:   #6c5ce7;
+  --p-gong:       #00b894;
+  --p-cg:         #a29bfe;
+  --p-eloqua:     #fd79a8;
+  --p-tagetik:    #74b9ff;
+  --p-conductor:  #55efc4;
+  --p-linkedin:   #0a66c2;
+  --p-jopard:     #b2bec3;
+  --p-icadmin:    #fdcb6e;
+  --p-fab-studio: #e17055;
+  /* Transform-tool edge colors */
+  --edge-python:  #4a9eda;
+  --edge-talend:  #00e5ff;
+  --edge-sql:     #50b3a2;
+  --edge-powerbi: #f2c811;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+/* ── Layout ────────────────────────────────────────────────────── */
+#app { display: flex; flex-direction: column; height: 100vh; }
+
+#topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 18px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0; z-index: 10;
+}
+#topbar h1 { font-size: 16px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+#topbar h1 span { color: var(--text2); font-weight: 400; }
+
+.tb-sep { width: 1px; height: 24px; background: var(--border); }
+
+#searchInput {
+  flex: 1; max-width: 260px; padding: 6px 12px;
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-size: 13px;
+  position: relative;
+}
+#searchInput:focus { outline: none; border-color: var(--accent); }
+
+#searchResultsDropdown {
+  display: none; position: absolute; top: 100%; left: 0; right: 0;
+  background: var(--bg3); border: 1px solid var(--border);
+  border-top: none; border-radius: 0 0 6px 6px;
+  max-height: 300px; overflow-y: auto; z-index: 999;
+  box-shadow: 0 4px 12px rgba(0,0,0,.3);
+}
+#searchResultsDropdown.active { display: block; }
+#searchResultsDropdown.empty { display: none; }
+
+.search-result-item {
+  padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border);
+  transition: background .1s; font-size: 12px;
+}
+.search-result-item:hover { background: var(--bg2); }
+.search-result-name { font-weight: 600; color: var(--accent); }
+.search-result-meta { font-size: 11px; color: var(--text2); margin-top: 2px; }
+.search-result-platform {
+  display: inline-block; padding: 2px 6px; border-radius: 4px;
+  font-size: 9px; font-weight: 700; margin-right: 4px;
+}
+#searchNoResults {
+  padding: 12px; text-align: center; color: var(--text2); font-size: 11px;
+}
+
+.tb-btn {
+  padding: 6px 14px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--bg3);
+  color: var(--text); font-size: 12px; cursor: pointer;
+  white-space: nowrap; transition: all .15s;
+}
+.tb-btn:hover { border-color: var(--accent); color: var(--accent); }
+.tb-btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+
+#fileInput { display: none; }
+.file-label {
+  padding: 6px 14px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--bg3); color: var(--text);
+  font-size: 12px; cursor: pointer; white-space: nowrap;
+  transition: all .15s;
+}
+.file-label:hover { border-color: var(--accent); color: var(--accent); }
+
+#layoutToggle {
+  padding: 6px 12px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--bg3); color: var(--text);
+  font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+
+#body { display: flex; flex: 1; min-height: 0; }
+
+/* ── Sidebar ───────────────────────────────────────────────────── */
+#sidebar {
+  width: 220px; min-width: 200px;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow-y: auto; flex-shrink: 0;
+}
+.sb-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.sb-title {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .8px; color: var(--text2); margin-bottom: 10px;
+}
+
+.sb-title-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 10px;
+}
+
+.sb-mini-btn {
+  padding: 2px 8px; border: 1px solid var(--border);
+  border-radius: 5px; background: var(--bg3); color: var(--text2);
+  font-size: 10px; font-weight: 600; cursor: pointer;
+  transition: all .15s;
+}
+.sb-mini-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.plat-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px; border-radius: 5px; cursor: pointer;
+  font-size: 12px; margin-bottom: 2px; transition: background .1s;
+}
+.plat-item:hover { background: var(--bg3); }
+.plat-item input { cursor: pointer; accent-color: var(--accent); }
+.plat-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+}
+.plat-count {
+  margin-left: auto; font-size: 10px; color: var(--text2);
+  background: var(--bg3); padding: 1px 6px; border-radius: 8px;
+}
+
+.stat-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  margin-top: 2px;
+}
+.stat-box {
+  background: var(--bg3); border-radius: 6px; padding: 8px 10px;
+  text-align: center; border: 1px solid var(--border);
+}
+.stat-box .n { font-size: 20px; font-weight: 700; color: var(--accent); }
+.stat-box .l { font-size: 9px; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
+
+/* ── Graph Canvas ──────────────────────────────────────────────── */
+#canvas { flex: 1; position: relative; overflow: hidden; }
+#canvas svg { width: 100%; height: 100%; display: block; }
+#empty-msg {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px;
+  color: var(--text2); pointer-events: none;
+}
+#empty-msg .icon { font-size: 48px; opacity: .3; }
+#empty-msg p { font-size: 14px; }
+#empty-msg .hint { font-size: 12px; opacity: .6; }
+
+/* ── Node SVG styles ───────────────────────────────────────────── */
+.node-group { cursor: pointer; }
+.node-bg {
+  rx: 7; ry: 7;
+  stroke-width: 1.5;
+  transition: filter .2s;
+}
+.node-accent { rx: 7 0 0 7; }
+.node-label {
+  font-size: 11px; font-weight: 600; fill: #e6edf3;
+  pointer-events: none;
+}
+.node-sublabel {
+  font-size: 9px; fill: #8b949e;
+  pointer-events: none;
+}
+.node-badge {
+  font-size: 8px; font-weight: 800; fill: white;
+  pointer-events: none;
+}
+.node-group.dimmed .node-bg   { opacity: .08; }
+.node-group.dimmed .node-label,
+.node-group.dimmed .node-sublabel { opacity: .08; }
+.node-group.dimmed .node-badge-bg { opacity: .08; }
+.node-group.upstream .node-bg { stroke: #58a6ff !important; stroke-width: 2.5px; }
+.node-group.downstream .node-bg { stroke: #f0883e !important; stroke-width: 2.5px; }
+.node-group.selected .node-bg {
+  stroke: var(--gold) !important; stroke-width: 3px;
+  filter: drop-shadow(0 0 8px var(--gold));
+}
+
+/* ── Edge SVG styles ───────────────────────────────────────────── */
+.edge-path { fill: none; stroke-width: 1.5; opacity: .55; }
+.edge-path.dimmed  { opacity: .04; }
+.edge-path.on-path { opacity: .9; stroke-width: 2.5; }
+
+/* ── Detail Panel ──────────────────────────────────────────────── */
+#detail {
+  width: 300px; min-width: 280px;
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow-y: auto; flex-shrink: 0;
+  transition: width .2s;
+}
+#detail.hidden { width: 0; min-width: 0; overflow: hidden; }
+
+#detail-header {
+  padding: 16px; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--bg2); z-index: 1;
+}
+#detail-node-name { font-size: 14px; font-weight: 700; word-break: break-word; }
+#detail-node-meta { font-size: 11px; color: var(--text2); margin-top: 4px; }
+#detail-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.d-badge {
+  padding: 3px 9px; border-radius: 10px; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .4px;
+}
+
+.chain-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.chain-title {
+  font-size: 11px; font-weight: 700; margin-bottom: 10px;
+  display: flex; align-items: center; gap: 6px;
+}
+.chain-count {
+  background: var(--bg3); border-radius: 8px; padding: 1px 7px;
+  font-size: 10px; font-weight: 600; color: var(--text2);
+}
+.hop-group { margin-bottom: 10px; }
+.hop-label {
+  font-size: 9px; color: var(--text2); text-transform: uppercase;
+  letter-spacing: .6px; margin-bottom: 4px; padding-left: 4px;
+}
+.hop-node {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-radius: 5px; cursor: pointer;
+  font-size: 11px; margin-bottom: 3px;
+  border: 1px solid transparent; transition: background .1s;
+}
+.hop-node:hover { background: var(--bg3); border-color: var(--border); }
+.hop-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.hop-name { font-weight: 600; word-break: break-word; }
+.hop-type { font-size: 9px; color: var(--text2); }
+
+.col-map-section { padding: 14px 16px; }
+.col-map-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px; background: var(--bg3); border-radius: 4px;
+  font-size: 10px; margin-bottom: 4px;
+}
+code { background: var(--bg); padding: 1px 5px; border-radius: 3px; font-size: 10px; }
+
+#detail-empty {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; padding: 24px;
+  color: var(--text2); text-align: center; gap: 8px;
+}
+#detail-empty .icon { font-size: 32px; opacity: .3; }
+#detail-empty p { font-size: 12px; line-height: 1.5; }
+
+/* ── Legend bar ────────────────────────────────────────────────── */
+#legend-bar {
+  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  padding: 8px 18px;
+  background: var(--bg2); border-top: 1px solid var(--border);
+  font-size: 11px; flex-shrink: 0;
+}
+.leg-item { display: flex; align-items: center; gap: 6px; }
+.leg-dot  { width: 10px; height: 10px; border-radius: 50%; }
+.leg-line { width: 24px; height: 2px; border-radius: 1px; }
+.leg-dash { width: 24px; height: 2px; background: repeating-linear-gradient(90deg,#aaa 0,#aaa 4px,transparent 4px,transparent 8px); }
+
+/* ── Scrollbar ─────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg2); }
+::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Top bar -->
+  <div id="topbar">
+    <h1>⚡ Data Lineage Viewer <span>v2</span></h1>
+    <div class="tb-sep"></div>
+    <label class="file-label" for="fileInput">📂 Load CSV</label>
+    <input type="file" id="fileInput" accept=".csv,.tsv,.txt">
+    <div style="position: relative; flex: 1; max-width: 260px;">
+      <input type="text" id="searchInput" placeholder="🔍 Search objects…">
+      <div id="searchResultsDropdown">
+        <div id="searchResultsList"></div>
+        <div id="searchNoResults"></div>
+      </div>
+    </div>
+    <button class="tb-btn" id="btnAll"     onclick="setView('all')"    title="Show all objects">All</button>
+    <button class="tb-btn" id="btnPath"    onclick="setView('path')"   title="Show selected path only">Path only</button>
+    <button class="tb-btn" id="btnReset"   onclick="resetSelection()">✕ Clear</button>
+    <select id="exportFormat" style="padding:6px 8px; background:var(--bg3); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px;">
+      <option value="csv">CSV</option>
+      <option value="xls">Excel (.xls)</option>
+    </select>
+    <button class="tb-btn" id="btnExport" onclick="exportSelectedLineage()" title="Export complete lineage for selected report">⬇ Export</button>
+    <div style="margin-left:auto; display:flex; gap:8px;">
+      <button class="tb-btn" id="btnLayout" onclick="cycleLayout()" title="Cycle layout mode">↔ Hierarchical</button>
+      <button class="tb-btn" id="btnExpand" onclick="toggleExpand()" title="Expand spacing for a cleaner lineage pattern">⤢ Expand</button>
+      <button class="tb-btn" id="btnFit"    onclick="fitView()">⊡ Fit</button>
+    </div>
+  </div>
+
+  <div id="body">
+
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div class="sb-section">
+        <div class="sb-title-row">
+          <div class="sb-title" style="margin-bottom:0;">Platforms</div>
+          <div style="display:flex; gap:6px;">
+            <button class="sb-mini-btn" id="btnSelectAllPlatforms" onclick="selectAllPlatforms()" title="Select all platform items">Select All</button>
+            <button class="sb-mini-btn" id="btnUnselectAllPlatforms" onclick="unselectAllPlatforms()" title="Unselect all platform items">Unselect All</button>
+          </div>
+        </div>
+        <div id="plat-list"></div>
+      </div>
+      <div class="sb-section">
+        <div class="sb-title">Statistics</div>
+        <div class="stat-grid">
+          <div class="stat-box"><div class="n" id="s-objects">0</div><div class="l">Objects</div></div>
+          <div class="stat-box"><div class="n" id="s-edges">0</div><div class="l">Flows</div></div>
+          <div class="stat-box"><div class="n" id="s-col">0</div><div class="l">Col Maps</div></div>
+          <div class="stat-box"><div class="n" id="s-ambig">0</div><div class="l">Ambiguous</div></div>
+        </div>
+      </div>
+      <div class="sb-section">
+        <div class="sb-title">Type Filter</div>
+        <select id="typeFilter" onchange="applyFilters()"
+          style="width:100%; padding:6px 8px; background:var(--bg3); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px;">
+          <option value="">All types</option>
+          <option value="TABLE">Table</option>
+          <option value="VIEW">View</option>
+          <option value="USER_TABLE">User Table</option>
+          <option value="SOURCE_TABLE">Source Table</option>
+          <option value="TABLEAU_REPORT">Tableau Report</option>
+          <option value="POWER_BI_REPORT">Power BI Report</option>
+          <option value="GAINSIGHT_REPORT">Gainsight Report</option>
+          <option value="SF_REPORT">Salesforce Report</option>
+          <option value="TALEND_JOB">Talend Job</option>
+          <option value="PYTHON_SCRIPT">Python Script</option>
+          <option value="SQL_STORED_PROCEDURE">Stored Procedure</option>
+          <option value="SQL_SCALAR_FUNCTION">Scalar Function</option>
+          <option value="SQL_INLINE_TABLE_VALUED_FUNCTION">Inline TVF</option>
+          <option value="SQL_TRIGGER">SQL Trigger</option>
+          <option value="CHECK_CONSTRAINT">Check Constraint</option>
+          <option value="S3_FILE">S3 File</option>
+          <option value="API_ENDPOINT">API Endpoint</option>
+          <option value="FILE">File</option>
+          <option value="PIPELINE">Pipeline</option>
+          <option value="NOTEBOOK">Notebook</option>
+        </select>
+      </div>
+      <div class="sb-section">
+        <div class="sb-title">Dep Type Filter</div>
+        <select id="depFilter" onchange="applyFilters()"
+          style="width:100%; padding:6px 8px; background:var(--bg3); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px;">
+          <option value="">All dependency types</option>
+          <option value="DATA_FLOW">Data Flow</option>
+          <option value="ORCHESTRATION">Orchestration</option>
+          <option value="SHORTCUT">Shortcut</option>
+          <option value="COLUMN_TRANSFORM">Column Transform</option>
+          <option value="AGGREGATION">Aggregation</option>
+          <option value="JOIN">Join</option>
+          <option value="FILTER">Filter</option>
+          <option value="UNION">Union</option>
+          <option value="FK">Foreign Key</option>
+          <option value="PK">Primary Key</option>
+        </select>
+      </div>
+      <div class="sb-section" style="border-bottom:none; flex:1;">
+        <div class="sb-title">Transform Tool</div>
+        <select id="toolFilter" onchange="applyFilters()"
+          style="width:100%; padding:6px 8px; background:var(--bg3); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px;">
+          <option value="">All tools</option>
+          <option value="PYTHON">🐍 Python</option>
+          <option value="TALEND">⚡ Talend</option>
+          <option value="SQL">🗄 SQL</option>
+          <option value="TABLEAU_CALC">📊 Tableau Calc</option>
+          <option value="POWERBI_DAX">📊 Power BI DAX</option>
+          <option value="FABRIC_PIPELINE">Fabric Pipeline</option>
+          <option value="None">None</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Graph canvas -->
+    <div id="canvas">
+      <div id="empty-msg">
+        <div class="icon">🔗</div>
+        <p>No lineage data loaded</p>
+        <p class="hint">Click <strong>Load CSV</strong> to open your lineage_metadata.csv</p>
+      </div>
+      <svg id="svg"></svg>
+    </div>
+
+    <!-- Detail panel -->
+    <div id="detail">
+      <div id="detail-empty">
+        <div class="icon">👆</div>
+        <p>Click any node to see its full end-to-end lineage chain</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Legend bar -->
+  <div id="legend-bar">
+    <span style="font-size:10px; color:var(--text2); text-transform:uppercase; letter-spacing:.6px; font-weight:700;">Platforms:</span>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-salesforce)"></div> Salesforce</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-s3)"></div> S3</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-file)"></div> File</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-talend)"></div> Talend</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-python)"></div> Python</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-redshift)"></div> Redshift</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-tableau)"></div> Tableau</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-powerbi)"></div> Power BI</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-powerbi-model)"></div> Power BI Model</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-powerbi-report)"></div> Power BI Report</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-powerbi-table)"></div> Power BI Table</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-azure)"></div> Azure</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-sap)"></div> SAP</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-google-analytics)"></div> Google Analytics</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-gainsight)"></div> Gainsight</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-ec2)"></div> EC2</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-gong)"></div> Gong</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-eloqua)"></div> Eloqua</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-linkedin)"></div> LinkedIn</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-outreach)"></div> Outreach</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--p-fab-studio)"></div> FAB Studio</div>
+    <div style="margin-left:auto; display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
+      <span style="font-size:10px; color:var(--text2); text-transform:uppercase; letter-spacing:.6px; font-weight:700;">Edges:</span>
+      <div class="leg-item"><div class="leg-line" style="background:var(--edge-python)"></div> Python</div>
+      <div class="leg-item"><div class="leg-line" style="background:var(--edge-talend)"></div> Talend</div>
+      <div class="leg-item"><div class="leg-line" style="background:var(--edge-sql)"></div> SQL</div>
+      <div class="leg-item"><div class="leg-line" style="background:var(--edge-powerbi)"></div> Power BI DAX</div>
+      <div class="leg-item"><div class="leg-line" style="background:#555"></div> Data Flow</div>
+      <div class="leg-item"><div class="leg-line" style="background:var(--p-tableau)"></div> Col Transform</div>
+      <div class="leg-item"><div class="leg-dash"></div> Aggregation</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--gold);width:8px;height:8px;"></div> Selected</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#58a6ff;width:8px;height:8px;"></div> Upstream</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#f0883e;width:8px;height:8px;"></div> Downstream</div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ══════════════════════════════════════════════════════════════════════
+// PLATFORM & TYPE CONFIGURATION
+// ══════════════════════════════════════════════════════════════════════
+
+const PLATFORM = {
+  SALESFORCE: { color: '#00a1e0', label: 'Salesforce',  abbr: 'SF'  },
+  S3:         { color: '#ff9900', label: 'Amazon S3',   abbr: 'S3'  },
+  FILE:       { color: '#8ea3b4', label: 'File',        abbr: 'FL'  },
+  TALEND:     { color: '#00c8e0', label: 'Talend',      abbr: 'TL'  },
+  PYTHON:     { color: '#3776ab', label: 'Python',      abbr: 'PY'  },
+  REDSHIFT:   { color: '#e74c3c', label: 'Redshift',    abbr: 'RS'  },
+  TABLEAU:    { color: '#e97627', label: 'Tableau',     abbr: 'TB'  },
+  TABLEAU_REPORT: { color: '#e97627', label: 'Tableau Report', abbr: 'TR' },
+  TABLEAU_TABLE:  { color: '#f4a261', label: 'Tableau Table',  abbr: 'TT' },
+  POWER_BI:        { color: '#d4a800', label: 'Power BI',         abbr: 'BI'  },
+  POWER_BI_MODEL:  { color: '#0099bc', label: 'Power BI Model',   abbr: 'BM'  },
+  POWER_BI_REPORT: { color: '#f2c811', label: 'Power BI Report',  abbr: 'BR'  },
+  POWER_BI_TABLE:  { color: '#a855f7', label: 'Power BI Table',   abbr: 'BT'  },
+  AZURE:           { color: '#0078d4', label: 'Azure',            abbr: 'AZ'  },
+  SAP:        { color: '#0070f2', label: 'SAP',         abbr: 'SP'  },
+  GOOGLE_ANALYTICS: { color: '#f9ab00', label: 'Google Analytics', abbr: 'GA' },
+  GAINSIGHT:  { color: '#f57c00', label: 'Gainsight',   abbr: 'GS'  },
+  API:        { color: '#e91e63', label: 'API',         abbr: 'AP'  },
+  ORACLE:     { color: '#c74634', label: 'Oracle',      abbr: 'OR'  },
+  MYSQL:      { color: '#00758f', label: 'MySQL',       abbr: 'MY'  },
+  FTP:        { color: '#6d4c41', label: 'FTP',          abbr: 'FT'  },
+  EC2:        { color: '#ff6b35', label: 'EC2',          abbr: 'E2'  },
+  OUTREACH:   { color: '#6c5ce7', label: 'Outreach',     abbr: 'OT'  },
+  GONG:       { color: '#00b894', label: 'Gong',          abbr: 'GG'  },
+  CG:         { color: '#a29bfe', label: 'Campaign Grid', abbr: 'CG'  },
+  ELOQUA:     { color: '#fd79a8', label: 'Eloqua',        abbr: 'EL'  },
+  TAGETIK:    { color: '#74b9ff', label: 'Tagetik',       abbr: 'TG'  },
+  CONDUCTOR:  { color: '#55efc4', label: 'Conductor',     abbr: 'CN'  },
+  LINKEDIN:   { color: '#0a66c2', label: 'LinkedIn',      abbr: 'LI'  },
+  JOPARD:     { color: '#b2bec3', label: 'Jopard',        abbr: 'JP'  },
+  ICADMIN:    { color: '#fdcb6e', label: 'ICAdmin',       abbr: 'IC'  },
+  FAB_STUDIO: { color: '#e17055', label: 'FAB Studio',    abbr: 'FST' },
+  SQL_SERVER:     { color: '#cc2927', label: 'SQL Server',     abbr: 'MS' },
+  ATHENA:         { color: '#8c4fff', label: 'AWS Athena',     abbr: 'AT' },
+  LEGISWAY:       { color: '#00857c', label: 'Legisway',       abbr: 'LW' },
+  CUSTOMER_GAUGE: { color: '#ff5a5f', label: 'CustomerGauge',  abbr: 'CU' },
+  FABRIC_BRONZE: { color: '#cd7f32', label: 'Fabric Bronze', abbr: 'FB' },
+  FABRIC_SILVER: { color: '#9fb3c8', label: 'Fabric Silver', abbr: 'FS' },
+  FABRIC_GOLD:   { color: '#d4af37', label: 'Fabric Gold',   abbr: 'FG' },
+  FABRIC_LAKEHOUSE: { color: '#2f80ed', label: 'Fabric Lakehouse', abbr: 'FL' },
+  FABRIC_PIPELINE:  { color: '#00857c', label: 'Fabric Pipeline',  abbr: 'FP' },
+  FABRIC_NOTEBOOK:  { color: '#2e8b57', label: 'Fabric Notebook',  abbr: 'FN' },
+};
+
+const DEP_COLOR = {
+  DATA_FLOW:        '#555566',
+  ORCHESTRATION:    '#00857c',
+  COLUMN_TRANSFORM: '#e97627',
+  AGGREGATION:      '#f2c811',
+  JOIN:             '#3776ab',
+  FILTER:           '#e91e63',
+  FK:               '#bd93f9',
+  PK:               '#50fa7b',
+  UNION:            '#26c6da',
+};
+
+// Edge colors keyed by Transform_Tool value (PYTHON / TALEND / SQL / POWERBI_DAX)
+const TOOL_EDGE_COLOR = {
+  PYTHON:          '#4a9eda',
+  TALEND:          '#00e5ff',
+  SQL:             '#50b3a2',
+  POWERBI_DAX:     '#f2c811',
+  SEMANTIC_MODEL:  '#0099bc',
+  POWER_BI_REPORT: '#f2c811',
+  FABRIC_PIPELINE: '#00857c',
+  SHORTCUT:        '#cd7f32',
+};
+
+function platformColor(p) {
+  return (PLATFORM[p && p.toUpperCase()] || { color: '#556068' }).color;
+}
+function platformAbbr(p) {
+  return (PLATFORM[p && p.toUpperCase()] || { abbr: '?' }).abbr;
+}
+function depColor(d) {
+  return DEP_COLOR[d && d.toUpperCase()] || '#555566';
+}
+
+// Returns the display-friendly name portion of a workspace-qualified "ws | name" string
+function displayName(name) {
+  if (!name) return '';
+  return name.includes(' | ') ? name.split(' | ').slice(1).join(' | ') : name;
+}
+// Returns the workspace prefix (before ' | '), or empty string
+function workspaceLabel(name) {
+  return (name && name.includes(' | ')) ? name.split(' | ')[0] : '';
+}
+
+function platformSectionKey(node) {
+  const schema = (node.schema || '').toUpperCase();
+  const type = (node.type || '').toUpperCase();
+  const plat = (node.platform || '').toUpperCase();
+
+  if (type === 'TABLEAU_REPORT' || schema === 'TABLEAU_REPORTS') return 'TABLEAU_REPORT';
+  if (schema === 'TABLEAU_MODEL' && plat === 'TABLEAU') return 'TABLEAU_TABLE';
+  return plat || 'UNKNOWN';
+}
+
+function platformSectionColor(node, sectionKey) {
+  if (sectionKey === 'TABLEAU_REPORT') return PLATFORM.TABLEAU_REPORT.color;
+  if (sectionKey === 'TABLEAU_TABLE') return PLATFORM.TABLEAU_TABLE.color;
+  return platformColor(node.platform);
+}
+
+// Returns stroke color: tool-based (Python/Talend/SQL) takes priority over dep_type
+function edgeStrokeColor(d) {
+  const tool = (d.xform_tool || '').toUpperCase();
+  return TOOL_EDGE_COLOR[tool] || depColor(d.dep_type);
+}
+
+// Returns the marker-end id to use for an edge
+function edgeMarkerId(d) {
+  const tool = (d.xform_tool || '').toUpperCase();
+  if (TOOL_EDGE_COLOR[tool]) return `arr-TOOL_${tool}`;
+  const key = d.dep_type && DEP_COLOR[d.dep_type] ? d.dep_type : 'DEFAULT';
+  return `arr-${key}`;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════════════
+
+let rawRows   = [];       // all parsed CSV rows
+let allNodes  = new Map();// id → node object
+let allEdges  = [];       // edge objects (deduped at table level)
+let allColEdges = [];     // column-level edges (not rendered as separate lines)
+
+let visNodes  = [];       // currently visible nodes
+let visEdges  = [];       // currently visible edges
+
+let selectedId = null;
+let upstreamIds = new Set();
+let downstreamIds = new Set();
+let viewMode = 'all';   // 'all' | 'path'
+
+let layoutMode = 0;     // 0=hierarchical 1=force
+let expandedView = false;
+
+// Platform filter state
+let hiddenPlatforms = new Set();
+
+const NODE_W = 180, NODE_H = 46, BADGE_W = 32;
+const LEVEL_GAP = 280, LEVEL_PAD = 60;
+
+// ══════════════════════════════════════════════════════════════════════
+// CSV PARSING
+// ══════════════════════════════════════════════════════════════════════
+
+function clean(v) {
+  if (!v) return '';
+  return String(v).replace(/^["'\s]+|["'\s]+$/g, '').trim();
+}
+
+function normalizePlatform(raw) {
+  const p = clean(raw).toUpperCase().replace(/[\s-]+/g, '_');
+  if (!p) return '';
+  if (p === 'GOOGLEANALYTICS' || p === 'GOOGLE_ANALYTICS' || p === 'GA4' || p === 'GOOGLE_ANALYTIC') return 'GOOGLE_ANALYTICS';
+  if (p === 'POWERBI') return 'POWER_BI';
+  return p;
+}
+
+function splitRow(line, delim) {
+  const result = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQ = !inQ; }
+    else if (c === delim && !inQ) { result.push(cur); cur = ''; }
+    else { cur += c; }
+  }
+  result.push(cur);
+  return result;
+}
+
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return;
+
+  const first = lines[1];
+  const delim = first.indexOf('\t') !== -1 ? '\t' : ',';
+
+  rawRows = [];
+  const nodeMap = new Map();
+  const edgeSet = new Set();
+  const edgeMap = new Map();
+  const colEdges = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = splitRow(lines[i], delim).map(clean);
+    if (cols.length < 18) continue;
+
+    const [
+      src_schema, src_object, src_type,
+      tgt_schema, tgt_object, tgt_type,
+      dep_type, col_param, schema_bound,
+      ext_loc, is_ambig, loc_type,
+      src_plat_raw, tgt_plat_raw,
+      xform_tool, xform_name, xform_path,
+      src_col
+    ] = cols;
+
+    const src_plat = normalizePlatform(src_plat_raw);
+    const tgt_plat = normalizePlatform(tgt_plat_raw);
+
+    if (!src_object || !tgt_object ||
+        src_object === 'NULL' || tgt_object === 'NULL') continue;
+
+    rawRows.push(cols);
+
+    // Nodes: Source = upstream (read from), Target = downstream (write to)
+    const srcId = `${src_schema}.${src_object}`;
+    const tgtId = `${tgt_schema}.${tgt_object}`;
+
+    if (!nodeMap.has(srcId)) {
+      nodeMap.set(srcId, {
+        id: srcId, name: src_object, schema: src_schema,
+        type: src_type, platform: src_plat,
+        inDeg: 0, outDeg: 0
+      });
+    }
+    if (!nodeMap.has(tgtId)) {
+      nodeMap.set(tgtId, {
+        id: tgtId, name: tgt_object, schema: tgt_schema,
+        type: tgt_type, platform: tgt_plat,
+        inDeg: 0, outDeg: 0
+      });
+    }
+
+    // Table-level edge: Source (upstream) → Target (downstream)
+    const edgeKey = `${srcId}→${tgtId}`;
+    if (!edgeSet.has(edgeKey)) {
+      edgeSet.add(edgeKey);
+      const newEdge = {
+        id: edgeKey, from: srcId, to: tgtId,
+        source: srcId, target: tgtId,  // required by D3 forceLink
+        dep_type, xform_tool, xform_name, xform_path,
+        is_ambig, loc_type, ext_loc,
+        columns: []
+      };
+      allEdges.push(newEdge);
+      edgeMap.set(edgeKey, newEdge);
+      nodeMap.get(tgtId).inDeg++;  // Target receives edge (downstream)
+      nodeMap.get(srcId).outDeg++;  // Source sends edge (upstream)
+    }
+
+    // Column mapping
+    if (col_param && col_param !== '*' && col_param !== 'NULL') {
+      const edge = edgeMap.get(edgeKey);
+      if (edge) {
+        const alreadyHas = edge.columns.some(
+          c => c.tgt === col_param && c.src === src_col
+        );
+        if (!alreadyHas) {
+          edge.columns.push({ tgt: col_param, src: src_col, dep_type });
+        }
+      }
+    }
+  }
+
+  allNodes = nodeMap;
+  applyFilters();
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// LEVEL ASSIGNMENT (topological sort → longest path from sources)
+// ══════════════════════════════════════════════════════════════════════
+
+function assignLevels(nodes, edges) {
+  const levels = new Map(nodes.map(n => [n.id, 0]));
+  // Kahn-style BFS
+  const inDeg  = new Map(nodes.map(n => [n.id, 0]));
+  const outMap = new Map(nodes.map(n => [n.id, []]));
+
+  edges.forEach(e => {
+    // edge goes from e.from (upstream) to e.to (downstream)
+    inDeg.set(e.to, (inDeg.get(e.to) || 0) + 1);
+    if (outMap.has(e.from)) outMap.get(e.from).push(e.to);
+  });
+
+  const queue = nodes.filter(n => inDeg.get(n.id) === 0).map(n => n.id);
+
+  while (queue.length) {
+    const id = queue.shift();
+    const lvl = levels.get(id) || 0;
+    (outMap.get(id) || []).forEach(nextId => {
+      levels.set(nextId, Math.max(levels.get(nextId) || 0, lvl + 1));
+      inDeg.set(nextId, inDeg.get(nextId) - 1);
+      if (inDeg.get(nextId) === 0) queue.push(nextId);
+    });
+  }
+  return levels;
+}
+
+// Longest (not shortest) hop count, so a node is placed after every ancestor it depends on.
+// The pass cap bounds cycles at the longest possible simple path.
+function longestDistances(start, adj, nodeCount) {
+  const dist = new Map([[start, 0]]);
+  for (let pass = 0; pass < nodeCount; pass++) {
+    let changed = false;
+    [...dist.entries()].forEach(([cur, d]) => {
+      (adj.get(cur) || []).forEach(next => {
+        if (next === start) return;
+        if (d + 1 > (dist.has(next) ? dist.get(next) : -Infinity)) {
+          dist.set(next, d + 1);
+          changed = true;
+        }
+      });
+    });
+    if (!changed) break;
+  }
+  return dist;
+}
+
+function assignLevelsFromSelected(nodes, edges, selected) {
+  const nodeIds = new Set(nodes.map(n => n.id));
+  const levels = new Map();
+  if (!nodeIds.has(selected)) return levels;
+
+  const outMap = new Map();
+  const inMap = new Map();
+  nodeIds.forEach(id => { outMap.set(id, []); inMap.set(id, []); });
+  edges.forEach(e => {
+    if (nodeIds.has(e.from) && nodeIds.has(e.to)) {
+      outMap.get(e.from).push(e.to);
+      inMap.get(e.to).push(e.from);
+    }
+  });
+
+  // Distances in both directions from selected node.
+  const downDist = longestDistances(selected, outMap, nodeIds.size); // selected -> node
+  const upDist = longestDistances(selected, inMap, nodeIds.size);    // node -> selected
+
+  const directDown = new Set(outMap.get(selected) || []);
+  const directUp = new Set(inMap.get(selected) || []);
+
+  nodeIds.forEach(id => {
+    if (id === selected) {
+      levels.set(id, 0);
+      return;
+    }
+
+    const hasUp = upDist.has(id);
+    const hasDown = downDist.has(id);
+
+    if (hasUp && !hasDown) {
+      levels.set(id, -(upDist.get(id) || 1));
+      return;
+    }
+    if (hasDown && !hasUp) {
+      levels.set(id, downDist.get(id) || 1);
+      return;
+    }
+
+    if (hasUp && hasDown) {
+      const u = upDist.get(id) || Number.MAX_SAFE_INTEGER;
+      const d = downDist.get(id) || Number.MAX_SAFE_INTEGER;
+
+      // For cyclic/mixed nodes, prefer nearest direction and honor direct neighbors.
+      if (directDown.has(id) && !directUp.has(id)) {
+        levels.set(id, 1);
+      } else if (directUp.has(id) && !directDown.has(id)) {
+        levels.set(id, -1);
+      } else if (d < u) {
+        levels.set(id, d);
+      } else if (u < d) {
+        levels.set(id, -u);
+      } else {
+        // Symmetric cycle case: place on downstream side by default.
+        levels.set(id, d);
+      }
+      return;
+    }
+
+    // Disconnected node fallback.
+    levels.set(id, 1);
+  });
+
+  return levels;
+}
+
+function applySelectedColumnLayout(nodes, levels, levelGap, expanded) {
+  const rowStep = expanded ? 84 : 64;
+  const minLevel = Math.min(...levels.values(), 0);
+  const canvasH = document.getElementById('canvas').clientHeight;
+
+  const byLevel = new Map();
+  nodes.forEach(n => {
+    const lvl = levels.get(n.id) || 0;
+    if (!byLevel.has(lvl)) byLevel.set(lvl, []);
+    byLevel.get(lvl).push(n);
+  });
+
+  const levelKeys = [...byLevel.keys()].sort((a, b) => a - b);
+  levelKeys.forEach(lvl => {
+    const colNodes = byLevel.get(lvl) || [];
+    colNodes.sort((a, b) => a.name.localeCompare(b.name));
+
+    const colX = LEVEL_PAD + (lvl - minLevel) * levelGap;
+    const totalH = (colNodes.length - 1) * rowStep;
+    const startY = (canvasH - totalH) / 2;
+
+    colNodes.forEach((n, idx) => {
+      n.x = colX;
+      n.y = startY + idx * rowStep;
+      // Pin x by hop so each hop is a single vertical line; y remains free enough to reduce collisions.
+      n.fx = colX;
+      n.fy = null;
+    });
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// D3 GRAPH RENDERING
+// ══════════════════════════════════════════════════════════════════════
+
+const svg = d3.select('#svg');
+let gMain, gEdges, gNodes;
+let simulation;
+let zoom;
+
+function initSVG() {
+  svg.selectAll('*').remove();
+
+  zoom = d3.zoom()
+    .scaleExtent([0.05, 4])
+    .on('zoom', e => gMain.attr('transform', e.transform));
+  svg.call(zoom).on('dblclick.zoom', null);
+
+  // Click background → clear selection
+  svg.on('click', (e) => {
+    if (e.target === svg.node() || e.target.tagName === 'svg') {
+      resetSelection();
+    }
+  });
+
+  // Arrow markers — dep_type based
+  const defs = svg.append('defs');
+  Object.entries(DEP_COLOR).concat([['DEFAULT','#555566']]).forEach(([key, color]) => {
+    defs.append('marker')
+      .attr('id', `arr-${key}`)
+      .attr('viewBox', '0 -4 8 8')
+      .attr('refX', NODE_W + BADGE_W + 4)
+      .attr('refY', 0)
+      .attr('markerWidth', 6).attr('markerHeight', 6)
+      .attr('orient', 'auto')
+      .append('path')
+        .attr('d', 'M0,-4L8,0L0,4')
+        .attr('fill', color);
+  });
+
+  // Arrow markers — transform tool based (Python / Talend / SQL)
+  Object.entries(TOOL_EDGE_COLOR).forEach(([key, color]) => {
+    defs.append('marker')
+      .attr('id', `arr-TOOL_${key}`)
+      .attr('viewBox', '0 -4 8 8')
+      .attr('refX', NODE_W + BADGE_W + 4)
+      .attr('refY', 0)
+      .attr('markerWidth', 6).attr('markerHeight', 6)
+      .attr('orient', 'auto')
+      .append('path')
+        .attr('d', 'M0,-4L8,0L0,4')
+        .attr('fill', color);
+  });
+
+  gMain  = svg.append('g').attr('class', 'g-main');
+  gEdges = gMain.append('g').attr('class', 'g-edges');
+  gNodes = gMain.append('g').attr('class', 'g-nodes');
+}
+
+function render() {
+  if (!gMain) initSVG();
+  document.getElementById('empty-msg').style.display =
+    visNodes.length === 0 ? 'flex' : 'none';
+  if (visNodes.length === 0) {
+    gEdges && gEdges.selectAll('*').remove();
+    gNodes && gNodes.selectAll('*').remove();
+    return;
+  }
+
+  const levelGap = expandedView ? 360 : LEVEL_GAP;
+  const minStep = expandedView ? 70 : 44;
+
+  // Assign levels: if a node is selected, enforce upstream-left / downstream-right orientation.
+  let levels;
+  if (selectedId && visNodes.some(n => n.id === selectedId)) {
+    levels = assignLevelsFromSelected(visNodes, visEdges, selectedId);
+  } else {
+    levels = assignLevels(visNodes, visEdges);
+  }
+
+  const minLevel = Math.min(...levels.values(), 0);
+  const xLevel = (id) => (levels.get(id) || 0) - minLevel;
+
+  // Group nodes by level
+  const byLevel = new Map();
+  visNodes.forEach(n => {
+    const l = levels.get(n.id) || 0;
+    if (!byLevel.has(l)) byLevel.set(l, []);
+    byLevel.get(l).push(n);
+  });
+
+  const canvasH = document.getElementById('canvas').clientHeight;
+
+  // Default: release any stale positional pins so simulation can reposition freely.
+  visNodes.forEach(n => { n.fx = null; n.fy = null; });
+
+  // Assign initial positions based on level
+  byLevel.forEach((nodes, lvl) => {
+    const step = Math.max(canvasH / (nodes.length + 1), minStep);
+    const startY = (canvasH - step * (nodes.length - 1)) / 2;
+    nodes.forEach((n, i) => {
+      n.x = LEVEL_PAD + (lvl - minLevel) * levelGap;
+      n.y = startY + i * step;
+    });
+  });
+
+  // For selected-node hierarchical view, force true hop columns:
+  // every hop stays on one vertical line, with upstream left and downstream right.
+  if (selectedId && layoutMode === 0 && visNodes.some(n => n.id === selectedId)) {
+    applySelectedColumnLayout(visNodes, levels, levelGap, expandedView);
+  }
+
+  // Force simulation
+  if (simulation) simulation.stop();
+
+  // Snapshot level assignments so the forceX closure stays valid after levels goes out of scope
+  const levelSnapshot = new Map(levels);
+
+  simulation = d3.forceSimulation(visNodes)
+    .force('link', d3.forceLink(visEdges)
+      .id(d => d.id)
+      .distance(levelGap * 0.85)
+      .strength(expandedView ? 0.36 : 0.3))
+    .force('x', d3.forceX(d => LEVEL_PAD + xLevel(d.id) * levelGap).strength(layoutMode === 0 ? 0.82 : 0.2))
+    .force('y', d3.forceY(d => d.y).strength(layoutMode === 0 ? 0.28 : 0.05))
+    .force('charge', d3.forceManyBody().strength(expandedView ? -680 : -400))
+    .force('collide', d3.forceCollide().radius(expandedView ? NODE_H + 20 : NODE_H + 8))
+    .alphaDecay(0.05)
+    .velocityDecay(0.4)
+    .on('tick', ticked);
+
+  drawEdges();
+  drawNodes();
+  applyHighlight();
+
+  // Fit after settling
+  setTimeout(fitView, 800);
+}
+
+function drawEdges() {
+  const sel = gEdges.selectAll('.edge-group')
+    .data(visEdges, d => d.id)
+    .join(
+      enter => enter.append('g').attr('class', 'edge-group'),
+      update => update,
+      exit => exit.remove()
+    );
+
+  sel.selectAll('path').remove();
+  sel.append('path')
+    .attr('class', d => 'edge-path' + (d.dep_type === 'AGGREGATION' ? ' agg-dash' : ''))
+    .attr('stroke', d => edgeStrokeColor(d))
+    .attr('stroke-dasharray', d => d.dep_type === 'AGGREGATION' ? '6,3' : null)
+    .attr('marker-end', d => `url(#${edgeMarkerId(d)})`)
+    .on('mouseover', edgeTooltip)
+    .on('mouseout', hideTooltip)
+    .on('click', (event, d) => { event.stopPropagation(); showEdgeDetail(d); });
+}
+
+function drawNodes() {
+  const sel = gNodes.selectAll('.node-group')
+    .data(visNodes, d => d.id)
+    .join(
+      enter => {
+        const g = enter.append('g').attr('class', 'node-group')
+          .call(d3.drag()
+            .on('start', dragStart)
+            .on('drag',  dragging)
+            .on('end',   dragEnd))
+          .on('click', (event, d) => { event.stopPropagation(); selectNode(d.id); })
+          .on('mouseover', nodeTooltip)
+          .on('mouseout',  hideTooltip);
+
+        // Background rect
+        g.append('rect')
+          .attr('class', 'node-bg')
+          .attr('width',  NODE_W + BADGE_W)
+          .attr('height', NODE_H)
+          .attr('x', -(NODE_W + BADGE_W) / 2)
+          .attr('y', -NODE_H / 2)
+          .attr('fill', d => platformColor(d.platform) + '18')
+          .attr('stroke', d => platformColor(d.platform) + '88');
+
+        // Platform badge
+        g.append('rect')
+          .attr('class', 'node-badge-bg')
+          .attr('width',  BADGE_W)
+          .attr('height', NODE_H)
+          .attr('x', -(NODE_W + BADGE_W) / 2)
+          .attr('y', -NODE_H / 2)
+          .attr('rx', 7).attr('ry', 7)
+          .attr('fill', d => platformColor(d.platform));
+
+        g.append('text')
+          .attr('class', 'node-badge')
+          .attr('x', -(NODE_W + BADGE_W) / 2 + BADGE_W / 2)
+          .attr('y', 4)
+          .attr('text-anchor', 'middle')
+          .text(d => platformAbbr(d.platform));
+
+        // Node name
+        g.append('text')
+          .attr('class', 'node-label')
+          .attr('x', -(NODE_W + BADGE_W) / 2 + BADGE_W + 10)
+          .attr('y', -5)
+          .each(function(d) {
+            const dn = displayName(d.name);
+            const label = dn.length > 20 ? dn.slice(0, 19) + '…' : dn;
+            d3.select(this).text(label);
+          });
+
+        // Sub-label: schema.type
+        g.append('text')
+          .attr('class', 'node-sublabel')
+          .attr('x', -(NODE_W + BADGE_W) / 2 + BADGE_W + 10)
+          .attr('y', 11)
+          .text(d => {
+            const t = d.type ? d.type.replace(/_/g, ' ').toLowerCase() : '';
+            const ws = workspaceLabel(d.name);
+            if (ws) return `${ws} · ${t}`;
+            const s = d.schema && d.schema !== 'NULL' ? d.schema : '';
+            return s ? `${s} · ${t}` : t;
+          });
+
+        return g;
+      },
+      update => update,
+      exit => exit.remove()
+    );
+
+  // Update colors in case filters changed
+  sel.select('.node-bg')
+    .attr('fill', d => platformColor(d.platform) + '18')
+    .attr('stroke', d => platformColor(d.platform) + '88');
+  sel.select('.node-badge-bg')
+    .attr('fill', d => platformColor(d.platform));
+}
+
+function ticked() {
+  gEdges.selectAll('.edge-group path').attr('d', d => {
+    // After D3 forceLink processes edges, source/target become node objects
+    const s = typeof d.source === 'object' ? d.source : null;
+    const t = typeof d.target === 'object' ? d.target : null;
+    if (!s || !t) return '';
+    const sx = (s.x || 0) + (NODE_W + BADGE_W) / 2;
+    const sy = s.y || 0;
+    const tx = (t.x || 0) - (NODE_W + BADGE_W) / 2;
+    const ty = t.y || 0;
+    const dx = tx - sx;
+    const cx = dx * 0.5;
+    return `M${sx},${sy} C${sx + cx},${sy} ${tx - cx},${ty} ${tx},${ty}`;
+  });
+
+  gNodes.selectAll('.node-group')
+    .attr('transform', d => `translate(${d.x || 0},${d.y || 0})`);
+}
+
+function dragStart(event, d) {
+  if (!event.active) simulation.alphaTarget(0.3).restart();
+  d.fx = d.x; d.fy = d.y;
+}
+function dragging(event, d) { d.fx = event.x; d.fy = event.y; }
+function dragEnd(event, d) {
+  if (!event.active) simulation.alphaTarget(0);
+  if (layoutMode !== 0) { d.fx = null; d.fy = null; }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SELECTION & FULL-PATH LINEAGE
+// ══════════════════════════════════════════════════════════════════════
+
+function selectNode(id) {
+  selectedId = id;
+
+  // BFS upstream (who does this depend on?)
+  upstreamIds = new Set();
+  const upQ = [id];
+  while (upQ.length) {
+    const cur = upQ.shift();
+    allEdges.forEach(e => {
+      if (e.to === cur && !upstreamIds.has(e.from)) {
+        upstreamIds.add(e.from);
+        upQ.push(e.from);
+      }
+    });
+  }
+
+  // BFS downstream (who depends on this?)
+  downstreamIds = new Set();
+  const dnQ = [id];
+  while (dnQ.length) {
+    const cur = dnQ.shift();
+    allEdges.forEach(e => {
+      if (e.from === cur && !downstreamIds.has(e.to)) {
+        downstreamIds.add(e.to);
+        dnQ.push(e.to);
+      }
+    });
+  }
+
+  if (viewMode === 'path') rebuildVisFromPath();
+  applyHighlight();
+  showDetailPanel(id);
+}
+
+function rebuildVisFromPath() {
+  // Path view should still respect active filters (platform/type/search/tool).
+  applyFilters();
+}
+
+function applyHighlight() {
+  if (!selectedId) {
+    // No selection: everything normal
+    gNodes && gNodes.selectAll('.node-group')
+      .classed('selected', false)
+      .classed('upstream', false)
+      .classed('downstream', false)
+      .classed('dimmed', false);
+    gEdges && gEdges.selectAll('.edge-group path')
+      .classed('on-path', false)
+      .classed('dimmed', false);
+    return;
+  }
+
+  const pathSet = new Set([...upstreamIds, selectedId, ...downstreamIds]);
+
+  gNodes && gNodes.selectAll('.node-group')
+    .classed('selected',    d => d.id === selectedId)
+    .classed('upstream',    d => upstreamIds.has(d.id))
+    .classed('downstream',  d => downstreamIds.has(d.id))
+    .classed('dimmed',      d => !pathSet.has(d.id));
+
+  gEdges && gEdges.selectAll('.edge-group path')
+    .classed('on-path', d => {
+      const fromId = typeof d.source === 'object' ? d.source.id : d.from;
+      const toId   = typeof d.target === 'object' ? d.target.id : d.to;
+      return pathSet.has(fromId) && pathSet.has(toId);
+    })
+    .classed('dimmed', d => {
+      const fromId = typeof d.source === 'object' ? d.source.id : d.from;
+      const toId   = typeof d.target === 'object' ? d.target.id : d.to;
+      return !pathSet.has(fromId) || !pathSet.has(toId);
+    });
+}
+
+function resetSelection() {
+  selectedId = null;
+  upstreamIds.clear();
+  downstreamIds.clear();
+  if (viewMode === 'path') { viewMode = 'all'; applyFilters(); }
+  applyHighlight();
+  document.getElementById('detail').innerHTML = `
+    <div id="detail-empty">
+      <div class="icon">👆</div>
+      <p>Click any node to see its full end-to-end lineage chain</p>
+    </div>`;
+}
+
+function computeHopDistancesFromSelected(id) {
+  // Mirrors the layout: hop count is the longest path, so exports match the drawn column.
+  const outMap = new Map();
+  const inMap = new Map();
+  const nodeIds = new Set();
+  allEdges.forEach(e => {
+    nodeIds.add(e.from);
+    nodeIds.add(e.to);
+    if (!outMap.has(e.from)) outMap.set(e.from, []);
+    if (!inMap.has(e.to)) inMap.set(e.to, []);
+    outMap.get(e.from).push(e.to);
+    inMap.get(e.to).push(e.from);
+  });
+  nodeIds.add(id);
+
+  return {
+    upDist: longestDistances(id, inMap, nodeIds.size),
+    dnDist: longestDistances(id, outMap, nodeIds.size),
+  };
+}
+
+function classifyFlowDirection(edge, reportId, upDist, dnDist) {
+  if (edge.to === reportId) return 'Into Selected Report';
+  if (edge.from === reportId) return 'Out of Selected Report';
+  if (upDist.has(edge.from) && upDist.has(edge.to)) return 'Upstream Chain';
+  if (dnDist.has(edge.from) && dnDist.has(edge.to)) return 'Downstream Chain';
+  return 'Connected Chain';
+}
+
+function safeText(v) {
+  if (v === null || v === undefined) return '';
+  return String(v);
+}
+
+function csvEscape(v) {
+  const s = safeText(v);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function sanitizeFileName(name) {
+  return safeText(name || 'selected_report')
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80) || 'selected_report';
+}
+
+function nodeDirectionInfo(nodeId, upDist, dnDist) {
+  if (nodeId === selectedId) return { direction: 'SELECTED', hops: 0 };
+  const hasUp = upDist.has(nodeId);
+  const hasDn = dnDist.has(nodeId);
+  const upHop = hasUp ? Number(upDist.get(nodeId)) : Number.MAX_SAFE_INTEGER;
+  const dnHop = hasDn ? Number(dnDist.get(nodeId)) : Number.MAX_SAFE_INTEGER;
+  if (hasUp && !hasDn) return { direction: 'UPSTREAM', hops: upHop };
+  if (hasDn && !hasUp) return { direction: 'DOWNSTREAM', hops: dnHop };
+  if (hasUp && hasDn) {
+    // Cycle/mixed case: pick nearest direction; tie defaults to downstream.
+    return upHop < dnHop
+      ? { direction: 'UPSTREAM', hops: upHop }
+      : { direction: 'DOWNSTREAM', hops: dnHop };
+  }
+  return { direction: 'DOWNSTREAM', hops: '' };
+}
+
+function buildExportRows() {
+  const report = allNodes.get(selectedId);
+  if (!report) return [];
+
+  const pathSet = new Set([...upstreamIds, selectedId, ...downstreamIds]);
+  const { upDist, dnDist } = computeHopDistancesFromSelected(selectedId);
+  const blank = { id: '', name: '', schema: '', type: '', platform: '' };
+
+  const rows = allEdges
+    .filter(e => pathSet.has(e.from) && pathSet.has(e.to))
+    .map(e => {
+      const src = allNodes.get(e.from) || { ...blank, id: e.from, name: e.from };
+      const tgt = allNodes.get(e.to) || { ...blank, id: e.to, name: e.to };
+      const a = nodeDirectionInfo(e.from, upDist, dnDist);
+      const b = nodeDirectionInfo(e.to, upDist, dnDist);
+      // classify the edge by its endpoint furthest from the selected node
+      const far = (Number(a.hops || 0) >= Number(b.hops || 0)) ? a : b;
+      const near = (far === a) ? b : a;
+      const direction = far.direction === 'SELECTED' ? near.direction : far.direction;
+
+      return {
+        Selected_Node: report.name,
+        Selected_Node_Id: selectedId,
+        Direction: direction,
+        Hops_From_Selected: Number.isFinite(Number(far.hops)) ? far.hops : '',
+        Source_Object: src.name,
+        Source_Object_Id: src.id || e.from,
+        Source_Schema: src.schema || '',
+        Source_Type: src.type || '',
+        Source_Platform: src.platform || '',
+        Target_Object: tgt.name,
+        Target_Object_Id: tgt.id || e.to,
+        Target_Schema: tgt.schema || '',
+        Target_Type: tgt.type || '',
+        Target_Platform: tgt.platform || '',
+        Dependency_Type: e.dep_type || '',
+        Transform_Tool: e.xform_tool || '',
+        Transform_Name: e.xform_name || '',
+        Transform_Path: e.xform_path || '',
+        Column_Or_Parameter: (e.columns || [])
+          .map(c => (c.src && c.src !== 'NULL') ? `${c.src} -> ${c.tgt}` : safeText(c.tgt))
+          .join('; '),
+        Is_Ambiguous: e.is_ambig || '',
+        Location_Type: e.loc_type || '',
+        External_Location: e.ext_loc || '',
+      };
+    });
+
+  rows.sort((a, b) => {
+    const dr = (a.Direction === b.Direction) ? 0 : (a.Direction === 'UPSTREAM' ? -1 : 1);
+    if (dr !== 0) return dr;
+    const ah = Number(a.Hops_From_Selected || 0);
+    const bh = Number(b.Hops_From_Selected || 0);
+    if (ah !== bh) return ah - bh;
+    return safeText(a.Source_Object).localeCompare(safeText(b.Source_Object))
+        || safeText(a.Target_Object).localeCompare(safeText(b.Target_Object));
+  });
+
+  return rows;
+}
+
+function exportAsCsv(rows, fileName) {
+  if (!rows.length) return;
+  const headers = Object.keys(rows[0]);
+  const lines = [headers.join(',')];
+  rows.forEach(r => {
+    lines.push(headers.map(h => csvEscape(r[h])).join(','));
+  });
+  const csvText = lines.join('\r\n');
+  const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportAsExcel(rows, fileName) {
+  if (!rows.length) return;
+  const headers = Object.keys(rows[0]);
+  const tableHead = `<tr>${headers.map(h => `<th style="background:#f3f4f6;border:1px solid #d1d5db;padding:6px;text-align:left;">${safeText(h)}</th>`).join('')}</tr>`;
+  const tableRows = rows.map(r =>
+    `<tr>${headers.map(h => `<td style="border:1px solid #d1d5db;padding:6px;">${safeText(r[h]).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>`).join('')}</tr>`
+  ).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><table>${tableHead}${tableRows}</table></body></html>`;
+  const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportSelectedLineage() {
+  if (!selectedId) {
+    alert('Select a report/node first, then click Export.');
+    return;
+  }
+
+  const rows = buildExportRows();
+  if (!rows.length) {
+    alert('No lineage rows found for the selected report.');
+    return;
+  }
+
+  const report = allNodes.get(selectedId);
+  const base = sanitizeFileName(report ? report.name : selectedId);
+  const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  const format = (document.getElementById('exportFormat') || {}).value || 'csv';
+
+  if (format === 'xls') {
+    exportAsExcel(rows, `${base}_lineage_${ts}.xls`);
+  } else {
+    exportAsCsv(rows, `${base}_lineage_${ts}.csv`);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// DETAIL PANEL
+// ══════════════════════════════════════════════════════════════════════
+
+function showDetailPanel(id) {
+  const node = allNodes.get(id);
+  if (!node) return;
+  const platC = platformColor(node.platform);
+
+  // Build hop maps for upstream
+  const upHops = new Map(); // hop → [nodeIds]
+  const visited = new Set([id]);
+  let frontier = [id];
+  let hop = 1;
+  while (frontier.length) {
+    const next = [];
+    frontier.forEach(cur => {
+      allEdges.forEach(e => {
+        if (e.to === cur && !visited.has(e.from)) {
+          visited.add(e.from);
+          if (!upHops.has(hop)) upHops.set(hop, []);
+          upHops.get(hop).push(e.from);
+          next.push(e.from);
+        }
+      });
+    });
+    frontier = next; hop++;
+    if (hop > 20) break;
+  }
+
+  const dnHops = new Map();
+  const visited2 = new Set([id]);
+  let frontier2 = [id];
+  let hop2 = 1;
+  while (frontier2.length) {
+    const next = [];
+    frontier2.forEach(cur => {
+      allEdges.forEach(e => {
+        if (e.from === cur && !visited2.has(e.to)) {
+          visited2.add(e.to);
+          if (!dnHops.has(hop2)) dnHops.set(hop2, []);
+          dnHops.get(hop2).push(e.to);
+          next.push(e.to);
+        }
+      });
+    });
+    frontier2 = next; hop2++;
+    if (hop2 > 20) break;
+  }
+
+  // Column mappings on edges FROM this node
+  const outEdges = allEdges.filter(e => e.from === id && e.columns.length > 0);
+  const inEdges  = allEdges.filter(e => e.to   === id && e.columns.length > 0);
+
+  function hopNodesHtml(hopMap, isUp) {
+    let html = '';
+    hopMap.forEach((nodeIds, h) => {
+      html += `<div class="hop-group">
+        <div class="hop-label">${isUp ? '↑' : '↓'} Hop ${h} &nbsp; (${nodeIds.length} object${nodeIds.length > 1 ? 's' : ''})</div>`;
+      nodeIds.forEach(nid => {
+        const n = allNodes.get(nid);
+        if (!n) return;
+        const c = platformColor(n.platform);
+        html += `<div class="hop-node" onclick="selectNode('${nid.replace(/'/g,"\\'")}')">
+          <div class="hop-dot" style="background:${c}"></div>
+          <div>
+            <div class="hop-name">${displayName(n.name)}</div>
+            <div class="hop-type">${workspaceLabel(n.name) || (n.schema !== 'NULL' ? n.schema : '')}${(workspaceLabel(n.name) || n.schema !== 'NULL') ? ' · ' : ''}${(n.type||'').replace(/_/g,' ')}</div>
+          </div>
+        </div>`;
+      });
+      html += '</div>';
+    });
+    return html || '<div style="font-size:11px;color:var(--text2);padding:4px 8px;">None</div>';
+  }
+
+  function colMapsHtml(edges, dir) {
+    if (!edges.length) return '';
+    let html = `<div class="chain-section">
+      <div class="chain-title">${dir === 'out' ? '→' : '←'} Column Mappings
+        <span class="chain-count">${edges.reduce((s,e)=>s+e.columns.length,0)}</span>
+      </div>`;
+    edges.forEach(e => {
+      const other = allNodes.get(dir === 'out' ? e.to : e.from);
+      if (!other) return;
+      html += `<div style="margin-bottom:10px;">
+        <div style="font-size:10px;color:var(--text2);margin-bottom:5px;">${dir === 'out' ? '→' : '←'} ${other.name}</div>`;
+      e.columns.slice(0, 8).forEach(c => {
+        html += `<div class="col-map-row">
+          <code>${c.src !== 'NULL' ? c.src : '—'}</code>
+          <span style="color:var(--text2)">→</span>
+          <code style="color:${depColor(c.dep_type)}44; border:1px solid ${depColor(c.dep_type)}44;">${c.tgt}</code>
+        </div>`;
+      });
+      if (e.columns.length > 8) {
+        html += `<div style="font-size:10px;color:var(--text2);padding:2px 8px;">+${e.columns.length-8} more…</div>`;
+      }
+      html += '</div>';
+    });
+    return html + '</div>';
+  }
+
+  const totalUp = [...upHops.values()].reduce((s,a)=>s+a.length,0);
+  const totalDn = [...dnHops.values()].reduce((s,a)=>s+a.length,0);
+  const dn = displayName(node.name);
+  const wsL = workspaceLabel(node.name);
+
+  document.getElementById('detail').innerHTML = `
+    <div id="detail-header">
+      <div id="detail-node-name" style="color:${platC}">${dn}</div>
+      <div id="detail-node-meta">${wsL ? wsL + ' \u00b7 ' : (node.schema !== 'NULL' ? node.schema + ' \u00b7 ' : '')}${dn}</div>
+      <div id="detail-badges">
+        <span class="d-badge" style="background:${platC}22;color:${platC};border:1px solid ${platC}44;">${platformAbbr(node.platform)} ${(PLATFORM[node.platform]||{label:node.platform}).label}</span>
+        <span class="d-badge" style="background:var(--bg3);color:var(--text2);border:1px solid var(--border);">${(node.type||'').replace(/_/g,' ')}</span>
+        ${totalUp + totalDn > 0 ? `<span class="d-badge" style="background:#58a6ff22;color:#58a6ff;border:1px solid #58a6ff44;">⛓ ${totalUp+totalDn} objects in chain</span>` : ''}
+      </div>
+    </div>
+
+    <div class="chain-section">
+      <div class="chain-title" style="color:#58a6ff">
+        ↑ Upstream
+        <span class="chain-count">${totalUp}</span>
+      </div>
+      ${hopNodesHtml(upHops, true)}
+    </div>
+
+    <div class="chain-section">
+      <div class="chain-title" style="color:#f0883e">
+        ↓ Downstream
+        <span class="chain-count">${totalDn}</span>
+      </div>
+      ${hopNodesHtml(dnHops, false)}
+    </div>
+
+    ${colMapsHtml(outEdges, 'out')}
+    ${colMapsHtml(inEdges, 'in')}
+  `;
+}
+
+function showEdgeDetail(edge) {
+  const fromNode = allNodes.get(edge.from) || allNodes.get(
+    typeof edge.source === 'object' ? edge.source.id : edge.source
+  );
+  const toNode = allNodes.get(edge.to) || allNodes.get(
+    typeof edge.target === 'object' ? edge.target.id : edge.target
+  );
+  if (!fromNode || !toNode) return;
+
+  const cols = edge.columns;
+  document.getElementById('detail').innerHTML = `
+    <div id="detail-header">
+      <div id="detail-node-name" style="font-size:13px;">🔗 Edge Detail</div>
+      <div id="detail-node-meta" style="margin-top:6px;">
+        <span style="color:${platformColor(fromNode.platform)}">${fromNode.name}</span>
+        <span style="color:var(--text2)"> → </span>
+        <span style="color:${platformColor(toNode.platform)}">${toNode.name}</span>
+      </div>
+      <div id="detail-badges" style="margin-top:10px;">
+        <span class="d-badge" style="background:${depColor(edge.dep_type)}22;color:${depColor(edge.dep_type)};border:1px solid ${depColor(edge.dep_type)}44;">${edge.dep_type||'DATA_FLOW'}</span>
+        ${edge.xform_tool && edge.xform_tool !== 'NULL' && edge.xform_tool !== 'None'
+          ? (() => { const tc = TOOL_EDGE_COLOR[(edge.xform_tool||'').toUpperCase()] || '#8b949e';
+              return `<span class="d-badge" style="background:${tc}22;color:${tc};border:1px solid ${tc}44;">⚙ ${edge.xform_tool}</span>`; })()
+          : ''}
+      </div>
+      ${edge.xform_name && edge.xform_name !== 'NULL' ? `<div style="margin-top:8px;font-size:11px;color:var(--text2);">Transform: <span style="color:var(--text)">${edge.xform_name}</span></div>` : ''}
+      ${edge.xform_path && edge.xform_path !== 'NULL' ? `<div style="margin-top:4px;font-size:10px;color:var(--text2);word-break:break-all;">${edge.xform_path}</div>` : ''}
+    </div>
+
+    <div class="col-map-section">
+      <div class="chain-title">Column Mappings <span class="chain-count">${cols.length}</span></div>
+      ${cols.length === 0
+        ? '<div style="font-size:11px;color:var(--text2);">Table-level flow (all columns)</div>'
+        : cols.map(c => `
+          <div class="col-map-row">
+            <code>${c.src !== 'NULL' && c.src ? c.src : '—'}</code>
+            <span style="color:var(--text2)">→</span>
+            <code>${c.tgt}</code>
+          </div>`).join('')
+      }
+    </div>
+  `;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// FILTERS & SIDEBAR
+// ══════════════════════════════════════════════════════════════════════
+
+function applyFilters() {
+  const search    = (document.getElementById('searchInput').value || '').toLowerCase();
+  const typeF     = document.getElementById('typeFilter').value;
+  const depF      = document.getElementById('depFilter').value;
+  const toolF     = document.getElementById('toolFilter').value;
+
+  // Filter edges first
+  let filtEdges = allEdges.filter(e => {
+    if (depF && e.dep_type !== depF) return false;
+    if (toolF) {
+      const eTool = e.xform_tool || 'None';
+      if (eTool !== toolF) return false;
+    }
+    return true;
+  });
+
+  // Collect node IDs referenced by remaining edges
+  const refIds = new Set();
+  filtEdges.forEach(e => { refIds.add(e.from); refIds.add(e.to); });
+
+  // Filter nodes
+  let filtNodes = [...allNodes.values()].filter(n => {
+    if (!refIds.has(n.id) && allEdges.length > 0) return false;
+    if (hiddenPlatforms.has(platformSectionKey(n))) return false;
+    if (typeF && n.type !== typeF) return false;
+    if (search && !n.name.toLowerCase().includes(search) && !n.id.toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  const filtNodeIds = new Set(filtNodes.map(n => n.id));
+
+  filtEdges = filtEdges.filter(e =>
+    filtNodeIds.has(e.from) && filtNodeIds.has(e.to)
+  );
+
+  // In path mode, keep only selected node chain but still honor current filters.
+  if (viewMode === 'path' && selectedId) {
+    const pathSet = new Set([...upstreamIds, selectedId, ...downstreamIds]);
+    filtNodes = filtNodes.filter(n => pathSet.has(n.id));
+    const pathNodeIds = new Set(filtNodes.map(n => n.id));
+    filtEdges = filtEdges.filter(e => pathNodeIds.has(e.from) && pathNodeIds.has(e.to));
+  }
+
+  visNodes = filtNodes;
+  visEdges = filtEdges;
+
+  render();
+  updateStats();
+  buildPlatformList();
+}
+
+function buildPlatformList() {
+  const platCount = new Map();
+  allNodes.forEach(n => {
+    const key = platformSectionKey(n);
+    platCount.set(key, (platCount.get(key) || 0) + 1);
+  });
+
+  const container = document.getElementById('plat-list');
+  container.innerHTML = '';
+  [...platCount.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([plat, count]) => {
+      const item = document.createElement('div');
+      item.className = 'plat-item';
+      const sampleNode = [...allNodes.values()].find(n => platformSectionKey(n) === plat);
+      const dotColor = sampleNode ? platformSectionColor(sampleNode, plat) : platformColor(plat);
+      item.innerHTML = `
+        <input type="checkbox" id="plat-${plat}" ${hiddenPlatforms.has(plat) ? '' : 'checked'}
+          onchange="togglePlatform('${plat}')">
+        <div class="plat-dot" style="background:${dotColor}"></div>
+        <label for="plat-${plat}" style="cursor:pointer;flex:1;">${(PLATFORM[plat]||{label:plat}).label}</label>
+        <span class="plat-count">${count}</span>
+      `;
+      container.appendChild(item);
+    });
+}
+
+function togglePlatform(plat) {
+  if (hiddenPlatforms.has(plat)) hiddenPlatforms.delete(plat);
+  else hiddenPlatforms.add(plat);
+  applyFilters();
+}
+
+function selectAllPlatforms() {
+  hiddenPlatforms.clear();
+  applyFilters();
+}
+
+function unselectAllPlatforms() {
+  const allPlatformKeys = new Set();
+  allNodes.forEach(n => allPlatformKeys.add(platformSectionKey(n)));
+  hiddenPlatforms = allPlatformKeys;
+  applyFilters();
+}
+
+function updateStats() {
+  document.getElementById('s-objects').textContent = visNodes.length;
+  document.getElementById('s-edges').textContent   = visEdges.length;
+
+  let colCount = 0, ambigCount = 0;
+  allEdges.forEach(e => {
+    colCount += e.columns.length;
+    if (e.is_ambig === 'Yes') ambigCount++;
+  });
+  document.getElementById('s-col').textContent   = colCount;
+  document.getElementById('s-ambig').textContent = ambigCount;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// TOOLTIPS
+// ══════════════════════════════════════════════════════════════════════
+
+let tooltipDiv;
+
+function ensureTooltip() {
+  if (!tooltipDiv) {
+    tooltipDiv = document.createElement('div');
+    tooltipDiv.style.cssText = `
+      position:fixed; background:rgba(13,17,23,.97); border:1px solid #30363d;
+      border-radius:8px; padding:12px 14px; pointer-events:none; opacity:0;
+      transition:opacity .15s; font-size:12px; z-index:9999; max-width:280px;
+      box-shadow:0 8px 24px rgba(0,0,0,.5); color:#e6edf3;`;
+    document.body.appendChild(tooltipDiv);
+  }
+}
+
+function nodeTooltip(event, d) {
+  ensureTooltip();
+  const inCount  = allEdges.filter(e => e.to   === d.id).length;
+  const outCount = allEdges.filter(e => e.from === d.id).length;
+  const platC = platformColor(d.platform);
+  const dn = displayName(d.name);
+  const wsL = workspaceLabel(d.name);
+  tooltipDiv.innerHTML = `
+    <div style="font-weight:700;font-size:13px;color:${platC};margin-bottom:6px;">${dn}</div>
+    <div style="color:#8b949e;margin-bottom:2px;">${wsL ? wsL + ' \u00b7 ' : (d.schema !== 'NULL' ? d.schema + '\u00b7 ' : '')}${dn}</div>
+    <div style="margin-bottom:8px;">
+      <span style="background:${platC}22;color:${platC};border:1px solid ${platC}44;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700;">${platformAbbr(d.platform)} ${(PLATFORM[d.platform]||{label:d.platform||''}).label}</span>
+      <span style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:2px 7px;border-radius:8px;font-size:10px;margin-left:4px;">${(d.type||'').replace(/_/g,' ')}</span>
+    </div>
+    <div style="display:flex;gap:16px;">
+      <div><span style="color:#58a6ff;font-weight:700;">${inCount}</span> <span style="color:#8b949e;font-size:11px;">upstream</span></div>
+      <div><span style="color:#f0883e;font-weight:700;">${outCount}</span> <span style="color:#8b949e;font-size:11px;">downstream</span></div>
+    </div>
+    <div style="color:#8b949e;font-size:10px;margin-top:8px;">Click to show full end-to-end lineage</div>
+  `;
+  positionTooltip(event);
+}
+
+function edgeTooltip(event, d) {
+  ensureTooltip();
+  const fromN = allNodes.get(d.from) || allNodes.get(typeof d.source === 'object' ? d.source.id : d.from);
+  const toN   = allNodes.get(d.to)   || allNodes.get(typeof d.target === 'object' ? d.target.id : d.to);
+  const dc = depColor(d.dep_type);
+  const toolKey = (d.xform_tool || '').toUpperCase();
+  const toolC = TOOL_EDGE_COLOR[toolKey];
+  tooltipDiv.innerHTML = `
+    <div style="font-weight:600;margin-bottom:6px;">
+      ${fromN ? `<span style="color:${platformColor(fromN.platform)}">${fromN.name}</span>` : '?'}
+      <span style="color:#8b949e"> → </span>
+      ${toN ? `<span style="color:${platformColor(toN.platform)}">${toN.name}</span>` : '?'}
+    </div>
+    <div style="margin-bottom:6px;display:flex;gap:4px;flex-wrap:wrap;">
+      <span style="background:${dc}22;color:${dc};border:1px solid ${dc}44;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700;">${d.dep_type||'DATA_FLOW'}</span>
+      ${toolC ? `<span style="background:${toolC}22;color:${toolC};border:1px solid ${toolC}44;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700;">⚙ ${d.xform_tool}</span>` : ''}
+    </div>
+    ${d.xform_name && d.xform_name !== 'NULL' ? `<div style="color:#8b949e;font-size:11px;">Transform: <span style="color:#e6edf3">${d.xform_name}</span></div>` : ''}
+    <div style="color:#8b949e;font-size:10px;margin-top:6px;">${d.columns.length} column mapping${d.columns.length !== 1 ? 's' : ''} · Click for details</div>
+  `;
+  positionTooltip(event);
+}
+
+function positionTooltip(event) {
+  tooltipDiv.style.opacity = 1;
+  const x = event.clientX + 14, y = event.clientY - 10;
+  const tw = tooltipDiv.offsetWidth || 260;
+  const th = tooltipDiv.offsetHeight || 120;
+  tooltipDiv.style.left = (x + tw > window.innerWidth  ? event.clientX - tw - 14 : x) + 'px';
+  tooltipDiv.style.top  = (y + th > window.innerHeight ? event.clientY - th - 10 : y) + 'px';
+}
+
+function hideTooltip() {
+  if (tooltipDiv) tooltipDiv.style.opacity = 0;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// VIEW CONTROLS
+// ══════════════════════════════════════════════════════════════════════
+
+function setView(mode) {
+  viewMode = mode;
+  document.getElementById('btnAll').classList.toggle('active', mode === 'all');
+  document.getElementById('btnPath').classList.toggle('active', mode === 'path');
+  if (mode === 'path' && selectedId) {
+    rebuildVisFromPath();
+  } else {
+    applyFilters();
+  }
+}
+
+function cycleLayout() {
+  layoutMode = layoutMode === 0 ? 1 : 0;
+  document.getElementById('btnLayout').textContent =
+    layoutMode === 0 ? '↔ Hierarchical' : '⊙ Force';
+  // Release fx on all nodes to let force take over
+  if (layoutMode === 1) {
+    visNodes.forEach(n => { n.fx = null; n.fy = null; });
+  }
+  render();
+}
+
+function toggleExpand() {
+  expandedView = !expandedView;
+  const btn = document.getElementById('btnExpand');
+  btn.classList.toggle('active', expandedView);
+  btn.textContent = expandedView ? '⤡ Compact' : '⤢ Expand';
+  render();
+}
+
+function fitView() {
+  if (!gMain || visNodes.length === 0) return;
+  const svg_el = document.getElementById('svg');
+  const W = svg_el.clientWidth, H = svg_el.clientHeight;
+
+  const xs = visNodes.map(n => n.x || 0);
+  const ys = visNodes.map(n => n.y || 0);
+  if (!xs.length) return;
+
+  const minX = Math.min(...xs) - (NODE_W + BADGE_W) / 2 - 20;
+  const maxX = Math.max(...xs) + (NODE_W + BADGE_W) / 2 + 20;
+  const minY = Math.min(...ys) - NODE_H / 2 - 20;
+  const maxY = Math.max(...ys) + NODE_H / 2 + 20;
+
+  const scale = Math.min(0.95, Math.min(W / (maxX - minX), H / (maxY - minY)));
+  const tx = W / 2 - scale * (minX + maxX) / 2;
+  const ty = H / 2 - scale * (minY + maxY) / 2;
+
+  svg.transition().duration(500)
+    .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// FILE LOADING
+// ══════════════════════════════════════════════════════════════════════
+
+document.getElementById('fileInput').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const label = document.querySelector('.file-label');
+  label.textContent = '⏳ Loading…';
+  const reader = new FileReader();
+  reader.onload = ev => {
+    allNodes.clear();
+    allEdges = [];
+    hiddenPlatforms.clear();
+    parseCSV(ev.target.result);
+    label.textContent = `✓ ${file.name}`;
+    resetSelection();
+  };
+  reader.onerror = () => { label.textContent = '⚠ Error'; };
+  reader.readAsText(file);
+});
+
+document.getElementById('searchInput').addEventListener('input', function(e) {
+  const query = e.target.value.toLowerCase();
+  const dropdown = document.getElementById('searchResultsDropdown');
+  const resultsList = document.getElementById('searchResultsList');
+  const noResults = document.getElementById('searchNoResults');
+
+  if (!query) {
+    dropdown.classList.remove('active');
+    resultsList.innerHTML = '';
+    noResults.innerHTML = '';
+    applyFilters();
+    return;
+  }
+
+  // Find all matching nodes
+  const matches = [...allNodes.values()].filter(n =>
+    n.name.toLowerCase().includes(query) || n.id.toLowerCase().includes(query)
+  ).slice(0, 12); // Limit to 12 results
+
+  if (matches.length === 0) {
+    resultsList.innerHTML = '';
+    noResults.innerHTML = `<div id="searchNoResults">No objects found matching "${query}"</div>`;
+    dropdown.classList.add('active');
+  } else {
+    noResults.innerHTML = '';
+    resultsList.innerHTML = matches.map(n => {
+      const platC = platformColor(n.platform);
+      const abbr = platformAbbr(n.platform);
+      return `
+        <div class="search-result-item" onclick="selectNode('${n.id.replace(/'/g, "\\'")}'); closeSearchDropdown();">
+          <div>
+            <span class="search-result-platform" style="background:${platC}22;color:${platC};border:1px solid ${platC}44;">${abbr}</span>
+            <span class="search-result-name">${displayName(n.name)}</span>
+          </div>
+          <div class="search-result-meta">${workspaceLabel(n.name) || (n.schema !== 'NULL' ? n.schema : '')}${(workspaceLabel(n.name) || n.schema !== 'NULL') ? ' · ' : ''}${(n.type||'').replace(/_/g,' ')}</div>
+        </div>
+      `;
+    }).join('');
+    dropdown.classList.add('active');
+  }
+
+  applyFilters();
+});
+
+function closeSearchDropdown() {
+  document.getElementById('searchResultsDropdown').classList.remove('active');
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('#searchInput') && !e.target.closest('#searchResultsDropdown')) {
+    closeSearchDropdown();
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════════════════
+
+window.addEventListener('load', () => { initSVG(); });
+window.addEventListener('resize', () => {
+  if (visNodes.length > 0) fitView();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+    "folders":[
+        {
+            "path": ".",
+            "name": "lineage-viewer"
+        },
+        {
+            "path": "../../shared",
+            "name": "shared"
+        }
+    ],
+    "settings": {
+        "chat.useCustomizationsInParentRepositories": true
+    }
+}

@@ -1,0 +1,27 @@
+{
+  "artifact_root": ".",
+  "layers": {
+    "bronze": "Fabric/Bronze/Notebooks",
+    "silver": "Fabric/Silver/Notebooks",
+    "gold": "Fabric/Gold/Notebooks"
+  },
+  "pipelines_root": "Fabric/Pipelines",
+  "semantic_models_root": "Fabric/Semantic Models",
+  "reports_root": "Fabric/Reports",
+  "config_files": {
+    "sources": "Configuration/sources_config.json",
+    "static_files": "Configuration/static_files_config.json",
+    "redshift_direct": "Configuration/redshift_direct_tables.json"
+  },
+  "lakehouse_platforms": {
+    "raw_lakehouse": "FABRIC_BRONZE",
+    "refined_lakehouse": "FABRIC_SILVER",
+    "curated_lakehouse": "FABRIC_GOLD"
+  },
+  "lakehouse_variables": {
+    "{RAW_LAKEHOUSE}": "raw_lakehouse",
+    "{REFINED_LAKEHOUSE}": "refined_lakehouse",
+    "{CURATED_LAKEHOUSE}": "curated_lakehouse"
+  },
+  "output_dir": "lineage-output"
+}
