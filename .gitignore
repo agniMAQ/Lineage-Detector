@@ -2,6 +2,8 @@
 .env
 *.env
 .env.*
+Decision.md
+Flow.md
 
 # Python
 __pycache__/
