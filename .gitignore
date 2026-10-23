@@ -4,6 +4,7 @@
 .env.*
 Decision.md
 Flow.md
+test-LLM.py
 
 # Python
 __pycache__/
